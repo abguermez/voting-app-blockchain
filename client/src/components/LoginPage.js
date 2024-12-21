@@ -10,7 +10,7 @@ const LoginPage = () => {
   const { login } = useAuth();
   const navigate = useNavigate();
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     
@@ -21,7 +21,12 @@ const LoginPage = () => {
     
     const success = login(username, password);
     if (success) {
-      navigate('/connect-wallet');
+      // Check username to determine the role and redirect accordingly
+      if (username === 'admin') {
+        navigate('/admin');
+      } else {
+        navigate('/user');
+      }
     } else {
       setError('Invalid username or password');
     }
