@@ -1,0 +1,416 @@
+"UserPanel":
+import React, { useState, useEffect } from 'react';
+import { Card, LoadingSpinner, Alert } from './SharedComponents';
+import ProposalList from './ProposalList';
+
+const UserPanel = ({ contract, account }) => {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [proposals, setProposals] = useState([]);
+  const [userInfo, setUserInfo] = useState(null);
+  const [votingStatus, setVotingStatus] = useState({ active: false, timeRemaining: 0 });
+
+  const fetchData = async () => {
+    try {
+      setLoading(true);
+      
+      // Get all proposals
+      const proposalsCount = await contract.methods.getProposalsCount().call();
+      const proposalsData = [];
+      
+      for (let i = 0; i < proposalsCount; i++) {
+        const proposal = await contract.methods.proposals(i).call();
+        proposalsData.push({
+          name: proposal.name,
+          description: proposal.description,
+          voteCount: proposal.voteCount
+        });
+      }
+
+      // Get voter info
+      const voterInfo = await contract.methods.voters(account).call();
+      
+      // Get voting status
+      const votingStatus = await contract.methods.votingOpen().call();
+
+      setProposals(proposalsData);
+      setUserInfo({
+        isRegistered: voterInfo.isRegistered,
+        hasVoted: voterInfo.hasVoted,
+        votedProposalId: voterInfo.votedProposalId
+      });
+      setVotingStatus({ active: votingStatus });
+    } catch (err) {
+      setError('Failed to load voting data. Please try again later.');
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, [contract, account]);
+
+  const handleVote = async (proposalIndex) => {
+    try {
+      setLoading(true);
+      await contract.methods.vote(proposalIndex).send({ from: account });
+      await fetchData(); // Refresh data after voting
+      setError(null);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) return <LoadingSpinner />;
+
+  return (
+    <div className="max-w-4xl mx-auto p-6">
+      <h1 className="text-3xl font-bold mb-8">Voting Dashboard</h1>
+
+      {error && <Alert type="error" message={error} />}
+
+      <Card title="Your Voting Status">
+        <div className="space-y-2">
+          <p>
+            Registration Status:{' '}
+            <span className={userInfo?.isRegistered ? 'text-green-600' : 'text-red-600'}>
+              {userInfo?.isRegistered ? 'Registered' : 'Not Registered'}
+            </span>
+          </p>
+          <p>
+            Voting Status:{' '}
+            <span className={userInfo?.hasVoted ? 'text-orange-600' : 'text-green-600'}>
+              {userInfo?.hasVoted ? 'Already Voted' : 'Not Voted'}
+            </span>
+          </p>
+          {votingStatus.active && (
+            <p>
+              Time Remaining: {Math.floor(votingStatus.timeRemaining / 3600)}h{' '}
+              {Math.floor((votingStatus.timeRemaining % 3600) / 60)}m
+            </p>
+          )}
+        </div>
+      </Card>
+
+      <div className="mt-6">
+        <ProposalList
+          proposals={proposals}
+          onVote={handleVote}
+          userCanVote={userInfo?.isRegistered && !userInfo?.hasVoted && votingStatus.active}
+        />
+      </div>
+    </div>
+  );
+};
+
+export default UserPanel;
+``````````````````````````````````````````````
+"AdminPanel"
+import React, { useState, useCallback } from 'react';
+import { Button, Input, Card, Alert } from './SharedComponents';
+
+const AdminPanel = ({ contract, account }) => {
+  const [voterAddress, setVoterAddress] = useState('');
+  const [voterName, setVoterName] = useState('');
+  const [proposalName, setProposalName] = useState('');
+  const [proposalDescription, setProposalDescription] = useState('');
+  const [votingStart, setVotingStart] = useState('');
+  const [votingEnd, setVotingEnd] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [alert, setAlert] = useState(null);
+
+  const showAlert = (type, message) => {
+    setAlert({ type, message });
+    setTimeout(() => setAlert(null), 5000);
+  };
+
+  const handleAddVoter = useCallback(async () => {
+    if (!voterAddress || !voterName) {
+      showAlert('error', 'Please fill in all voter fields');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      await contract.methods.addVoter(voterAddress, voterName).send({ from: account });
+      showAlert('success', 'Voter added successfully!');
+      setVoterAddress('');
+      setVoterName('');
+    } catch (error) {
+      showAlert('error', error.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [contract, account, voterAddress, voterName]);
+
+  const handleAddProposal = useCallback(async () => {
+    if (!proposalName || !proposalDescription) {
+      showAlert('error', 'Please fill in all proposal fields');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      await contract.methods.addProposal(proposalName, proposalDescription).send({ from: account });
+      showAlert('success', 'Proposal added successfully!');
+      setProposalName('');
+      setProposalDescription('');
+    } catch (error) {
+      showAlert('error', error.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [contract, account, proposalName, proposalDescription]);
+
+  const handleSetVotingPeriod = useCallback(async () => {
+    if (!votingStart || !votingEnd) {
+      showAlert('error', 'Please set both start and end times');
+      return;
+    }
+
+    const startTime = Math.floor(new Date(votingStart).getTime() / 1000);
+    const endTime = Math.floor(new Date(votingEnd).getTime() / 1000);
+
+    if (startTime >= endTime) {
+      showAlert('error', 'End time must be after start time');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      await contract.methods.setVotingPeriod(startTime, endTime).send({ from: account });
+      showAlert('success', 'Voting period set successfully!');
+      setVotingStart('');
+      setVotingEnd('');
+    } catch (error) {
+      showAlert('error', error.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [contract, account, votingStart, votingEnd]);
+
+  return (
+    <div className="max-w-4xl mx-auto p-6">
+      <h1 className="text-3xl font-bold mb-8">Admin Dashboard</h1>
+
+      {alert && <Alert type={alert.type} message={alert.message} />}
+
+      <Card title="Add Voter">
+        <Input
+          label="Voter Address"
+          type="text"
+          placeholder="0x..."
+          value={voterAddress}
+          onChange={(e) => setVoterAddress(e.target.value)}
+        />
+        <Input
+          label="Voter Name"
+          type="text"
+          placeholder="Enter voter name"
+          value={voterName}
+          onChange={(e) => setVoterName(e.target.value)}
+        />
+        <Button onClick={handleAddVoter} disabled={loading}>
+          {loading ? 'Adding Voter...' : 'Add Voter'}
+        </Button>
+      </Card>
+
+      <Card title="Add Proposal">
+        <Input
+          label="Proposal Name"
+          type="text"
+          placeholder="Enter proposal name"
+          value={proposalName}
+          onChange={(e) => setProposalName(e.target.value)}
+        />
+        <Input
+          label="Proposal Description"
+          type="text"
+          placeholder="Enter proposal description"
+          value={proposalDescription}
+          onChange={(e) => setProposalDescription(e.target.value)}
+        />
+        <Button onClick={handleAddProposal} disabled={loading}>
+          {loading ? 'Adding Proposal...' : 'Add Proposal'}
+        </Button>
+      </Card>
+
+      <Card title="Set Voting Period">
+        <Input
+          label="Start Time (YYYY-MM-DD HH:mm:ss)"
+          type="datetime-local"
+          value={votingStart}
+          onChange={(e) => setVotingStart(e.target.value)}
+        />
+        <Input
+          label="End Time (YYYY-MM-DD HH:mm:ss)"
+          type="datetime-local"
+          value={votingEnd}
+          onChange={(e) => setVotingEnd(e.target.value)}
+        />
+        <Button onClick={handleSetVotingPeriod} disabled={loading}>
+          {loading ? 'Setting Period...' : 'Set Voting Period'}
+        </Button>
+      </Card>
+    </div>
+  );
+};
+
+export default AdminPanel;
+`````````````````````````````````````````
+"voting.sol":
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+contract Voting {
+    struct Voter {
+        bool isRegistered;
+        bool hasVoted;
+        uint voteIndex;
+        string voterName;   // Added voter name
+    }
+
+    struct Proposal {
+        string name;
+        string description; // Added description
+        uint voteCount;
+        bool isActive;      // Added status
+    }
+
+    address public admin;
+    mapping(address => Voter) public voters;
+    address[] private voterAddresses;
+    Proposal[] public proposals;
+    
+    uint public votingStart;
+    uint public votingEnd;
+    bool public votingActive;
+
+    event VoterAdded(address indexed voter, string name);
+    event VoterRemoved(address indexed voter);
+    event Voted(address indexed voter, uint indexed proposalIndex, uint timestamp);
+    event ProposalAdded(uint indexed proposalIndex, string name);
+    event ProposalStatusChanged(uint indexed proposalIndex, bool isActive);
+    event VotingTimeSet(uint startTime, uint endTime);
+
+    modifier onlyAdmin() {
+        require(msg.sender == admin, "Only admin can perform this action");
+        _;
+    }
+
+    modifier onlyDuringVotingPeriod() {
+        require(votingActive, "Voting is not currently active");
+        require(block.timestamp < votingEnd, "Voting period has ended");
+        _;
+    }
+
+    constructor() {
+        admin = msg.sender;
+        votingActive = false;
+    }
+
+    function setVotingPeriod(uint _startTime, uint _endTime) public onlyAdmin {
+        require(_endTime > _startTime, "Invalid time period");
+        require(_startTime >= block.timestamp, "Start time must be in the future");
+        
+        votingStart = _startTime;
+        votingEnd = _endTime;
+        votingActive = true;
+        
+        emit VotingTimeSet(_startTime, _endTime);
+    }
+
+    function addVoter(address _voter, string memory _name) public onlyAdmin {
+        require(!voters[_voter].isRegistered, "Voter is already registered");
+        
+        voters[_voter] = Voter({
+            isRegistered: true,
+            hasVoted: false,
+            voteIndex: 0,
+            voterName: _name
+        });
+        
+        voterAddresses.push(_voter);
+        emit VoterAdded(_voter, _name);
+    }
+
+    function removeVoter(address _voter) public onlyAdmin {
+        require(voters[_voter].isRegistered, "Voter not registered");
+        require(!voters[_voter].hasVoted, "Cannot remove voter who has voted");
+        
+        delete voters[_voter];
+        
+        // Remove from voterAddresses array
+        for (uint i = 0; i < voterAddresses.length; i++) {
+            if (voterAddresses[i] == _voter) {
+                voterAddresses[i] = voterAddresses[voterAddresses.length - 1];
+                voterAddresses.pop();
+                break;
+            }
+        }
+        
+        emit VoterRemoved(_voter);
+    }
+
+    function addProposal(string memory _name, string memory _description) public onlyAdmin {
+        proposals.push(Proposal({
+            name: _name,
+            description: _description,
+            voteCount: 0,
+            isActive: true
+        }));
+        
+        emit ProposalAdded(proposals.length - 1, _name);
+    }
+
+    function toggleProposalStatus(uint _proposalIndex) public onlyAdmin {
+        require(_proposalIndex < proposals.length, "Invalid proposal index");
+        proposals[_proposalIndex].isActive = !proposals[_proposalIndex].isActive;
+        emit ProposalStatusChanged(_proposalIndex, proposals[_proposalIndex].isActive);
+    }
+
+    function vote(uint _proposalIndex) public onlyDuringVotingPeriod {
+        require(voters[msg.sender].isRegistered, "You are not registered to vote");
+        require(!voters[msg.sender].hasVoted, "You have already voted");
+        require(_proposalIndex < proposals.length, "Invalid proposal");
+        require(proposals[_proposalIndex].isActive, "Proposal is not active");
+
+        voters[msg.sender].hasVoted = true;
+        voters[msg.sender].voteIndex = _proposalIndex;
+        proposals[_proposalIndex].voteCount++;
+
+        emit Voted(msg.sender, _proposalIndex, block.timestamp);
+    }
+
+    // View functions
+    function getProposals() public view returns (Proposal[] memory) {
+        return proposals;
+    }
+
+    function getVoterCount() public view returns (uint) {
+        return voterAddresses.length;
+    }
+
+    function getVotingStatus() public view returns (bool isActive, uint timeRemaining) {
+        if (!votingActive || block.timestamp >= votingEnd) {
+            return (false, 0);
+        }
+        return (true, votingEnd - block.timestamp);
+    }
+
+    function getVoterInfo(address _voter) public view returns (Voter memory) {
+        return voters[_voter];
+    }
+    
+    function getProposalsCount() public view returns (uint256) {
+        return proposals.length;
+    }
+
+    function votingOpen() public view returns (bool) {
+        return true; // Modify based on your voting period logic
+    }
+}

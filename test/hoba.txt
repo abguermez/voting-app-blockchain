@@ -1,0 +1,743 @@
+"App.js":
+import React, { useState, useEffect } from "react";
+import { BrowserRouter as Router, Route, Routes, Navigate } from "react-router-dom";
+import { getWeb3, getContract } from "./web3";
+import AdminPanel from "./components/AdminPanel";
+import UserPanel from "./components/UserPanel";
+import WalletConnect from "./components/WalletConnect";
+import { LoadingSpinner, Alert } from "./components/SharedComponents";
+import { Menu, LogOut } from "lucide-react";
+import ResultsPanel from "./components/ResultsPanel";
+
+const Navigation = ({ account, isAdmin, onDisconnect }) => (
+  <nav className="bg-gray-800 text-white p-4">
+    <div className="max-w-7xl mx-auto flex justify-between items-center">
+      <div className="flex items-center space-x-4">
+        <h1 className="text-xl font-bold">Voting DApp</h1>
+        {isAdmin && (
+          <span className="bg-blue-600 px-2 py-1 rounded text-sm">Admin</span>
+        )}
+      </div>
+      
+      <div className="flex items-center space-x-4">
+        <div className="text-sm opacity-75">
+          {account.slice(0, 6)}...{account.slice(-4)}
+        </div>
+        <button
+          onClick={onDisconnect}
+          className="p-2 hover:bg-gray-700 rounded-full transition-colors"
+        >
+          <LogOut className="h-5 w-5" />
+        </button>
+      </div>
+    </div>
+  </nav>
+);
+
+const Layout = ({ children }) => (
+  <div className="min-h-screen bg-gray-50">
+    {children}
+    <footer className="bg-gray-800 text-white text-center p-4 mt-auto">
+      <p className="text-sm opacity-75">
+        Voting DApp © {new Date().getFullYear()}
+      </p>
+    </footer>
+  </div>
+);
+
+const App = () => {
+  // Define all state variables at the top
+  const [web3Instance, setWeb3Instance] = useState(null);
+  const [account, setAccount] = useState("");
+  const [contract, setContract] = useState(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [isInitialized, setIsInitialized] = useState(false);
+
+  const initializeContract = async (web3) => {
+    try {
+      console.log("Getting contract instance...");
+      const contractInstance = await getContract(web3);
+      console.log("Contract instance obtained:", contractInstance);
+      setContract(contractInstance);
+
+      console.log("Getting admin address...");
+      const admin = await contractInstance.methods.admin().call();
+      console.log("Admin address:", admin);
+      
+      console.log("Current account:", account);
+      setIsAdmin(admin.toLowerCase() === account.toLowerCase());
+      
+      console.log("Setting initialization complete");
+      setIsInitialized(true);
+      setError(null);
+    } catch (error) {
+      console.error("Error initializing contract:", error);
+      setError("Failed to initialize contract. Please check your connection.");
+      setIsInitialized(false);
+    }
+  };
+
+  const handleConnect = async (selectedAccount) => {
+    try {
+      console.log("Starting connection process...");
+      setLoading(true);
+      setError(null);
+
+      console.log("Getting Web3 instance...");
+      const web3 = await getWeb3();
+      setWeb3Instance(web3);
+      
+      console.log("Setting account:", selectedAccount);
+      setAccount(selectedAccount);
+
+      console.log("Initializing contract...");
+      await initializeContract(web3);
+    } catch (error) {
+      console.error("Connection error:", error);
+      setError(error.message || "Failed to connect");
+    } finally {
+      console.log("Connection process completed");
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    const checkConnection = async () => {
+      try {
+        if (window.ethereum) {
+          const accounts = await window.ethereum.request({
+            method: 'eth_accounts'
+          });
+          if (accounts.length > 0) {
+            handleConnect(accounts[0]);
+          } else {
+            setLoading(false);
+          }
+        } else {
+          setLoading(false);
+        }
+      } catch (error) {
+        console.error("Error checking connection:", error);
+        setLoading(false);
+      }
+    };
+
+    checkConnection();
+
+    if (window.ethereum) {
+      window.ethereum.on("accountsChanged", (accounts) => {
+        if (accounts.length > 0) {
+          handleConnect(accounts[0]);
+        } else {
+          setAccount("");
+          setContract(null);
+          setIsInitialized(false);
+        }
+      });
+
+      window.ethereum.on("chainChanged", () => {
+        window.location.reload();
+      });
+    }
+
+    return () => {
+      if (window.ethereum) {
+        window.ethereum.removeAllListeners();
+      }
+    };
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="h-screen flex items-center justify-center">
+        <LoadingSpinner />
+      </div>
+    );
+  }
+
+  if (!account || !isInitialized) {
+    return <WalletConnect onConnect={handleConnect} />;
+  }
+
+  return (
+    <Router>
+      <Layout>
+        {error ? (
+          <div className="max-w-2xl mx-auto mt-8 px-4">
+            <Alert type="error" message={error} />
+            <button
+              onClick={() => window.location.reload()}
+              className="mt-4 w-full text-center text-sm text-blue-600 hover:text-blue-500"
+            >
+              Try again
+            </button>
+          </div>
+        ) : (
+          <>
+            <Navigation
+              account={account}
+              isAdmin={isAdmin}
+              onDisconnect={() => {
+                setAccount("");
+                setContract(null);
+                setIsInitialized(false);
+              }}
+            />
+
+            <main className="container mx-auto py-8 px-4">
+              <Routes>
+                <Route
+                  path="/admin"
+                  element={
+                    !isAdmin ? (
+                      <AdminPanel contract={contract} account={account} />
+                    ) : (
+                      <Navigate to="/user" replace />
+                    )
+                  }
+                />
+                <Route
+                  path="/user"
+                  element={
+                    <UserPanel contract={contract} account={account} />
+                  }
+                />
+                <Route
+                  path="/results"
+                  element={<ResultsPanel contract={contract} />}
+                />
+                <Route
+                  path="*"
+                  element={
+                    <Navigate to={isAdmin ? "/admin" : "/user"} replace />
+                  }
+                />
+              </Routes>
+            </main>
+          </>
+        )}
+      </Layout>
+    </Router>
+  );
+};
+
+export default App;
+````````````````````````````````````
+"web3.js":
+import Web3 from "web3";
+import Voting from "./contracts/Voting.json";
+
+const getWeb3 = () => {
+  return new Promise(async (resolve, reject) => {
+    try {
+      if (window.ethereum) {
+        const web3 = new Web3(window.ethereum);
+        try {
+          await window.ethereum.request({ method: "eth_requestAccounts" });
+          console.log("MetaMask connected");
+          resolve(web3);
+        } catch (error) {
+          reject(error);
+        }
+      } else if (window.web3) {
+        const web3 = new Web3(window.web3.currentProvider);
+        console.log("Legacy web3 detected");
+        resolve(web3);
+      } else {
+        reject("Must install MetaMask!");
+      }
+    } catch (error) {
+      reject(error);
+    }
+  });
+};
+
+const getContract = async (web3) => {
+  try {
+    const networkId = await web3.eth.net.getId();
+    console.log("Network ID ==> " + networkId);
+    
+    const deployedNetwork = Voting.networks[networkId];
+    console.log("Deployed Network ==> ", deployedNetwork);
+    
+    if (!deployedNetwork) {
+      throw new Error("Contract not deployed on the current network!");
+    }
+    
+    const contract = new web3.eth.Contract(
+      Voting.abi,
+      deployedNetwork.address
+    );
+    
+    console.log("Contract initialized successfully");
+    return contract;
+  } catch (error) {
+    console.error("Error in getContract:", error);
+    throw error;
+  }
+};
+
+export { getWeb3, getContract };
+````````````````````````````````````
+"AdminPanel.js":
+import React, { useState, useCallback } from 'react';
+import { Button, Input, Card, Alert } from './SharedComponents';
+
+const AdminPanel = ({ contract, account }) => {
+  const [voterAddress, setVoterAddress] = useState('');
+  const [voterName, setVoterName] = useState('');
+  const [proposalName, setProposalName] = useState('');
+  const [proposalDescription, setProposalDescription] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [alert, setAlert] = useState(null);
+
+  const showAlert = (type, message) => {
+    setAlert({ type, message });
+    setTimeout(() => setAlert(null), 5000);
+  };
+
+  const handleAddVoter = useCallback(async () => {
+    if (!voterAddress || !voterName) {
+      showAlert('error', 'Please fill in all voter fields');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      await contract.methods
+        .addVoter(voterAddress, voterName)
+        .send({ from: account });
+      showAlert('success', 'Voter added successfully!');
+      setVoterAddress('');
+      setVoterName('');
+    } catch (error) {
+      showAlert('error', error.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [contract, account, voterAddress, voterName]);
+
+  const handleAddProposal = useCallback(async () => {
+    if (!proposalName || !proposalDescription) {
+      showAlert('error', 'Please fill in all proposal fields');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      await contract.methods
+        .addProposal(proposalName, proposalDescription)
+        .send({ from: account });
+      showAlert('success', 'Proposal added successfully!');
+      setProposalName('');
+      setProposalDescription('');
+    } catch (error) {
+      showAlert('error', error.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [contract, account, proposalName, proposalDescription]);
+
+  return (
+    <div className="max-w-4xl mx-auto p-6">
+      <h1 className="text-3xl font-bold mb-8">Admin Dashboard</h1>
+      
+      {alert && <Alert type={alert.type} message={alert.message} />}
+
+      <Card title="Add Voter">
+        <Input
+          label="Voter Address"
+          type="text"
+          placeholder="0x..."
+          value={voterAddress}
+          onChange={(e) => setVoterAddress(e.target.value)}
+        />
+        <Input
+          label="Voter Name"
+          type="text"
+          placeholder="Enter voter name"
+          value={voterName}
+          onChange={(e) => setVoterName(e.target.value)}
+        />
+        <Button onClick={handleAddVoter} disabled={loading}>
+          {loading ? 'Adding Voter...' : 'Add Voter'}
+        </Button>
+      </Card>
+
+      <Card title="Add Proposal">
+        <Input
+          label="Proposal Name"
+          type="text"
+          placeholder="Enter proposal name"
+          value={proposalName}
+          onChange={(e) => setProposalName(e.target.value)}
+        />
+        <Input
+          label="Proposal Description"
+          type="text"
+          placeholder="Enter proposal description"
+          value={proposalDescription}
+          onChange={(e) => setProposalDescription(e.target.value)}
+        />
+        <Button onClick={handleAddProposal} disabled={loading}>
+          {loading ? 'Adding Proposal...' : 'Add Proposal'}
+        </Button>
+      </Card>
+    </div>
+  );
+};
+
+export default AdminPanel;
+```````````````````````````````````
+"ProposalList":
+import React from 'react';
+import { Card } from './SharedComponents';
+
+const ProposalList = ({ proposals, onVote, userCanVote }) => {
+  return (
+    <Card title="Active Proposals">
+      <div className="space-y-4">
+        {proposals.map((proposal, index) => (
+          <div
+            key={index}
+            className="border rounded-lg p-4 hover:shadow-md transition-shadow"
+          >
+            <div className="flex justify-between items-start">
+              <div>
+                <h3 className="text-lg font-semibold">{proposal.name}</h3>
+                <p className="text-gray-600 mt-1">{proposal.description}</p>
+                <div className="mt-2 text-sm text-gray-500">
+                  Votes: {proposal.voteCount}
+                </div>
+              </div>
+              {userCanVote && (
+                <button
+                  onClick={() => onVote(index)}
+                  className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 transition-colors"
+                >
+                  Vote
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+        {proposals.length === 0 && (
+          <p className="text-gray-500 text-center py-4">No proposals available</p>
+        )}
+      </div>
+    </Card>
+  );
+};
+
+export default ProposalList;
+```````````````````````````````````
+"ResultsPanel":
+import React, { useEffect, useState } from "react";
+
+const ResultsPanel = ({ contract }) => {
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchResults = async () => {
+      try {
+        const totalVotes = await contract.methods.getTotalVotes().call(); // Assuming this method exists
+        const candidates = await contract.methods.getCandidates().call(); // Replace with actual method for candidate data
+        const fetchedResults = candidates.map((candidate, index) => ({
+          name: candidate,
+          votes: totalVotes[index],
+        }));
+        setResults(fetchedResults);
+      } catch (error) {
+        console.error("Error fetching results:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (contract) {
+      fetchResults();
+    }
+  }, [contract]);
+
+  if (loading) {
+    return <div>Loading results...</div>;
+  }
+
+  return (
+    <div className="max-w-3xl mx-auto">
+      <h1 className="text-2xl font-bold mb-4">Voting Results</h1>
+      {results.length === 0 ? (
+        <p>No results available.</p>
+      ) : (
+        <ul>
+          {results.map((result, index) => (
+            <li key={index} className="border p-4 mb-2 rounded shadow">
+              <p className="text-lg font-semibold">{result.name}</p>
+              <p>Votes: {result.votes}</p>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+};
+
+export default ResultsPanel;
+
+```````````````````````````````````
+"SharedComponents":
+import React from 'react';
+import { Loader } from 'lucide-react';
+
+export const Button = ({ children, onClick, disabled, variant = 'primary' }) => (
+  <button
+    onClick={onClick}
+    disabled={disabled}
+    className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+      variant === 'primary'
+        ? 'bg-blue-600 hover:bg-blue-700 text-white disabled:bg-blue-400'
+        : 'bg-gray-200 hover:bg-gray-300 text-gray-800 disabled:bg-gray-100'
+    } disabled:cursor-not-allowed`}
+  >
+    {children}
+  </button>
+);
+
+export const Input = ({ label, ...props }) => (
+  <div className="mb-4">
+    {label && (
+      <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
+    )}
+    <input
+      className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+      {...props}
+    />
+  </div>
+);
+
+export const Card = ({ title, children }) => (
+  <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+    {title && <h2 className="text-xl font-semibold mb-4">{title}</h2>}
+    {children}
+  </div>
+);
+
+export const LoadingSpinner = () => (
+  <div className="flex items-center justify-center p-4">
+    <Loader className="animate-spin h-8 w-8 text-blue-600" />
+  </div>
+);
+
+export const Alert = ({ type = 'info', message }) => {
+  const styles = {
+    success: 'bg-green-100 text-green-800 border-green-400',
+    error: 'bg-red-100 text-red-800 border-red-400',
+    info: 'bg-blue-100 text-blue-800 border-blue-400',
+  };
+
+  return (
+    <div className={`p-4 mb-4 rounded-lg border ${styles[type]}`}>
+      {message}
+    </div>
+  );
+};
+
+export default {
+  Button,
+  Input,
+  Card,
+  LoadingSpinner,
+  Alert,
+};
+```````````````````````````````````
+"UserPanel":
+import React, { useState, useEffect } from 'react';
+import { Card, LoadingSpinner, Alert } from './SharedComponents';
+import ProposalList from './ProposalList';
+
+const UserPanel = ({ contract, account }) => {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [proposals, setProposals] = useState([]);
+  const [userInfo, setUserInfo] = useState(null);
+  const [votingStatus, setVotingStatus] = useState({ active: false, timeRemaining: 0 });
+
+  const fetchData = async () => {
+    try {
+      setLoading(true);
+      const [proposalsData, voterInfo, votingStatusData] = await Promise.all([
+        contract.methods.getProposals().call(),
+        contract.methods.getVoterInfo(account).call(),
+        contract.methods.getVotingStatus().call()
+      ]);
+
+      setProposals(proposalsData);
+      setUserInfo(voterInfo);
+      setVotingStatus(votingStatusData);
+    } catch (err) {
+      setError('Failed to load voting data. Please try again later.');
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+    console.log("ddddd" + userInfo)
+  }, [contract, account]);
+
+  const handleVote = async (proposalIndex) => {
+    try {
+      setLoading(true);
+      await contract.methods.vote(proposalIndex).send({ from: account });
+      await fetchData(); // Refresh data after voting
+      setError(null);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) return <LoadingSpinner />;
+
+  return (
+    <div className="max-w-4xl mx-auto p-6">
+      <h1 className="text-3xl font-bold mb-8">Voting Dashboard</h1>
+
+      {error && <Alert type="error" message={error} />}
+
+      <Card title="Your Voting Status">
+        <div className="space-y-2">
+          <p>
+            Registration Status:{' '}
+            <span className={userInfo?.isRegistered ? 'text-green-600' : 'text-red-600'}>
+              {userInfo?.isRegistered ? 'Registered' : 'Not Registered'}
+            </span>
+          </p>
+          <p>
+            Voting Status:{' '}
+            <span className={userInfo?.hasVoted ? 'text-orange-600' : 'text-green-600'}>
+              {userInfo?.hasVoted ? 'Already Voted' : 'Not Voted'}
+            </span>
+          </p>
+          {votingStatus.active && (
+            <p>
+              Time Remaining: {Math.floor(votingStatus.timeRemaining / 3600)}h{' '}
+              {Math.floor((votingStatus.timeRemaining % 3600) / 60)}m
+            </p>
+          )}
+        </div>
+      </Card>
+
+      <div className="mt-6">
+        <ProposalList
+          proposals={proposals}
+          onVote={handleVote}
+          userCanVote={userInfo?.isRegistered && !userInfo?.hasVoted && votingStatus.active}
+        />
+      </div>
+    </div>
+  );
+};
+
+export default UserPanel;
+```````````````````````````````````
+"WalletConnect":
+import React, { useState } from 'react';
+import { Wallet, AlertCircle, Loader } from 'lucide-react';
+
+const WalletConnect = ({ onConnect }) => {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const connectWallet = async () => {
+    try {
+      setLoading(true);
+      setError('');
+
+      // Check if MetaMask is installed
+      if (!window.ethereum) {
+        throw new Error('Please install MetaMask to use this dApp');
+      }
+
+      // Request account access
+      const accounts = await window.ethereum.request({
+        method: 'eth_requestAccounts'
+      });
+
+      // Get the network ID
+      const networkId = await window.ethereum.request({
+        method: 'net_version'
+      });
+
+      // Check if we're on the correct network (5777 for Ganache)
+      if (networkId !== '5777') {
+        throw new Error('Please connect to Ganache network');
+      }
+
+      onConnect(accounts[0]);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-md w-full space-y-8">
+        <div>
+          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
+            Welcome to Voting DApp
+          </h2>
+          <p className="mt-2 text-center text-sm text-gray-600">
+            Connect your wallet to get started
+          </p>
+        </div>
+
+        {error && (
+          <div className="bg-red-50 border-l-4 border-red-400 p-4">
+            <div className="flex">
+              <AlertCircle className="h-5 w-5 text-red-400" />
+              <p className="ml-3 text-sm text-red-700">{error}</p>
+            </div>
+          </div>
+        )}
+
+        <button
+          onClick={connectWallet}
+          disabled={loading}
+          className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-blue-300"
+        >
+          {loading ? (
+            <Loader className="animate-spin h-5 w-5" />
+          ) : (
+            <>
+              <Wallet className="h-5 w-5 mr-2" />
+              Connect Wallet
+            </>
+          )}
+        </button>
+
+        <div className="mt-4 text-center">
+          <p className="text-sm text-gray-600">
+            Make sure you have:
+          </p>
+          <ul className="mt-2 text-sm text-gray-500 list-disc list-inside">
+            <li>MetaMask installed</li>
+            <li>Ganache running locally</li>
+            <li>Connected to the correct network</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default WalletConnect;
+```````````````````````````````````
