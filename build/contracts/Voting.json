@@ -17209,12 +17209,12 @@
     "1337": {
       "events": {},
       "links": {},
-      "address": "0x67F53329e868FE7ff035D71f4C90f4bbC3fDf41b",
-      "transactionHash": "0x05696b6030fa21ab7bbfd6f7509e33fb41c72bc3152bf091d97318ede029a90c"
+      "address": "0x8F6AA5b5a86879E3Da90253a8CBa5C99cC61FC1B",
+      "transactionHash": "0x5f6000c0c417ce798081121b310424b6cc34ae0f8b9312e6d39a0363d3ca068f"
     }
   },
   "schemaVersion": "3.4.16",
-  "updatedAt": "2024-12-21T14:14:12.460Z",
+  "updatedAt": "2024-12-21T20:35:14.075Z",
   "networkType": "ethereum",
   "devdoc": {
     "kind": "dev",
